@@ -12,6 +12,7 @@ from domain.schemas.FuncionarioSchema import (
 # Infra
 from infra.orm.FuncionarioModel import FuncionarioDB
 from infra.database import get_db
+from infra.security import get_password_hash
 
 router = APIRouter()
 
@@ -60,6 +61,9 @@ async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = De
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Já existe um funcionário com este CPF"
             )
         
+        # Hash da Senha
+        hashed_password = get_password_hash(funcionario_data.senha)
+        
         # Cria um novo funcionário
         novo_funcionario = FuncionarioDB(
             id=None, # Será auto-incrementado
@@ -68,7 +72,7 @@ async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = De
             cpf=funcionario_data.cpf,
             telefone=funcionario_data.telefone,
             grupo=funcionario_data.grupo,
-            senha=funcionario_data.senha
+            senha=hashed_password
         )
 
         db.add(novo_funcionario)
@@ -104,6 +108,10 @@ async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Sess
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail="Já existe um funcionário com este CPF"
                 )
+            # Hash da senha se fornecida nova senha
+        if funcionario_data.senha:
+            funcionario_data.senha = get_password_hash(funcionario_data.senha)
+                
         # Atualiza apenas os campos fornecidos
         update_data = funcionario_data.model_dump(exclude_unset=True)
 
