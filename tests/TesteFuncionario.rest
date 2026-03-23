@@ -9,9 +9,9 @@ content-type: application/json
 {
     "nome" : "Vinicius de Liz da Conceição",
     "matricula": "vi12345",
-    "cpf" : "1",
+    "cpf" : "3",
     "telefone" : "te233849212",
-    "grupo" : 1,
+    "grupo" : 3,
     "senha" : "qualqueruma123"
 }
 
@@ -20,12 +20,7 @@ PUT http://127.0.0.1:8000/funcionario/2 HTTP/1.1
 content-type: application/json
 
 {
-    "nome" : "Vinicius de Liz da Conceição",
-    "matricula" : "vi12345",
-    "cpf" : "1",
-    "telefone" : "te233849212",
-    "grupo" : 1,
-    "senha" : "qualqueruma123"
+    "senha" : "novasenha123"
 }
 
 ### Verbo DELETE - excluir
