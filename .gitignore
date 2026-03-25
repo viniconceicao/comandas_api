@@ -9,4 +9,4 @@ pyvenv.cfg
 .idea
 .vscode
 comandas_db.db
-src\.env
+.env*
