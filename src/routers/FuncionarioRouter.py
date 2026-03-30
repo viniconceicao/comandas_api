@@ -9,10 +9,13 @@ from domain.schemas.FuncionarioSchema import (
     FuncionarioResponse
 )
 
+from domain.schemas.AuthSchema import FuncionarioAuth
+
 # Infra
 from infra.orm.FuncionarioModel import FuncionarioDB
 from infra.database import get_db
 from infra.security import get_password_hash
+from infra.dependencies import get_current_activate_user, require_group
 
 router = APIRouter()
 
@@ -20,8 +23,10 @@ router = APIRouter()
 # Alterando o router funcionário
 
 @router.get("/funcionario/", response_model=List[FuncionarioResponse], tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Listar todos os funcionários")
-async def get_funcionario(db: Session = Depends(get_db)):
-    """Retorna todos os funcionários"""
+async def get_funcionario(db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1]))
+):
+    """Retorna todos os funcionários - protegida por autenticação e grupo 1"""
     try:
         funcionarios = db.query(FuncionarioDB).all()
         return funcionarios
@@ -32,8 +37,10 @@ async def get_funcionario(db: Session = Depends(get_db)):
         )
     
 @router.get("/funcionario/{id}/", response_model=FuncionarioResponse, tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Buscar funcionário por ID")
-async def get_funcionario(id: int, db: Session = Depends(get_db)):
-    """Retorna um funcionário específico pelo ID"""
+async def get_funcionario(id: int, db: Session = Depends(get_db),
+        current_user: FuncionarioAuth = Depends(get_current_activate_user)
+):
+    """Retorna um funcionário específico pelo ID - protegida por autenticação"""
     try:
         funcionario = db.query(FuncionarioDB).filter(FuncionarioDB.id == id).first()
 
@@ -50,8 +57,10 @@ async def get_funcionario(id: int, db: Session = Depends(get_db)):
         )
     
 @router.post("/funcionario/", response_model=FuncionarioResponse, status_code=status.HTTP_201_CREATED, tags=["Funcionário"], summary="Criar novo funcionário")
-async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = Depends(get_db)):
-    """Cria um novo funcionário"""
+async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = Depends(get_db),
+        current_user: FuncionarioAuth = Depends(require_group([1]))
+):
+    """Cria um novo funcionário - protegida por autenticação e grupo 1"""
     try:
         #Verifica se já existe funcionário com este CPF
         existing_funcionario = db.query(FuncionarioDB).filter(FuncionarioDB.cpf == funcionario_data.cpf).first()
@@ -90,8 +99,10 @@ async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = De
         )
     
 @router.put("/funcionario/{id}", response_model=FuncionarioResponse, tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Atualiza Funcionário")
-async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Session = Depends(get_db)):
-    """Atualiza um funcionário existente"""
+async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Session = Depends(get_db),
+        current_user: FuncionarioAuth = Depends(require_group([1]))
+):
+    """Atualiza um funcionário existente - protegida por autenticação e grupo 1"""
     try:
         funcionario = db.query(FuncionarioDB).filter(FuncionarioDB.id == id).first()
 
@@ -132,8 +143,10 @@ async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Sess
         )
     
 @router.delete("/funcionario/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Funcionário"], summary="Remover Funcionário")
-async def delete_funcionario(id: int, db: Session = Depends(get_db)):
-    """Remove um funcionário"""
+async def delete_funcionario(id: int, db: Session = Depends(get_db),
+        current_user: FuncionarioAuth = Depends(require_group([1]))
+):
+    """Remove um funcionário - protegida por autenticação e grupo 1"""
     try:
         funcionario = db.query(FuncionarioDB).filter(FuncionarioDB.id == id).first()
 
@@ -141,6 +154,13 @@ async def delete_funcionario(id: int, db: Session = Depends(get_db)):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Funcionário não encontrado"
+            )
+        
+        # Impede que admin se auto-exclua
+        if current_user.id == id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não é possível excluir seu próprio usuário"
             )
             
         db.delete(funcionario)
