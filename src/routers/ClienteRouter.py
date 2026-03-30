@@ -8,15 +8,19 @@ from domain.schemas.ClienteSchema import(
     ClienteUpdate,
     ClienteResponse
 )
+from domain.schemas.AuthSchema import FuncionarioAuth
 # Infra
 from infra.orm.ClienteModel import ClienteDB
 from infra.database import get_db
+from infra.dependencies import get_current_activate_user, require_group
 
 router = APIRouter()
 
 # Criar as rotas/endpoints: GET, POST, PUT, DELETE
 @router.get("/cliente/", response_model=List[ClienteResponse], tags=["Cliente"], status_code=status.HTTP_200_OK, summary="Listar todos os clientes")
-async def get_cliente(db: Session = Depends(get_db)):
+async def get_cliente(db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(get_current_activate_user)
+):
     """Retorna todos os cliente"""
     try:
         clientes = db.query(ClienteDB).all()
@@ -28,7 +32,9 @@ async def get_cliente(db: Session = Depends(get_db)):
         )
 
 @router.get("/cliente/{id}/", response_model=ClienteResponse, tags=["Cliente"], status_code=status.HTTP_200_OK, summary="Buscar cliente por ID")
-async def get_cliente(id: int, db: Session = Depends(get_db)):
+async def get_cliente(id: int, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(get_current_activate_user)
+):
     """Retorna um Cliente específico pelo ID"""
     try:
         cliente = db.query(ClienteDB).filter(ClienteDB.id == id).first()
@@ -46,7 +52,9 @@ async def get_cliente(id: int, db: Session = Depends(get_db)):
         )
 
 @router.post("/cliente/", response_model=ClienteResponse, status_code=status.HTTP_201_CREATED, tags=["Cliente"], summary="Criar novo cliente")
-async def post_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db)):
+async def post_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1, 3]))
+):
     """Cria um novo cliente"""
     try:
         #Verifica se já existe cliente com este CPF
@@ -79,7 +87,9 @@ async def post_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db
         )
 
 @router.put("/cliente/{id}", response_model=ClienteResponse, tags=["Cliente"], status_code=status.HTTP_200_OK, summary="Atualizar cliente")
-async def put_cliente(id: int, cliente_data: ClienteUpdate, db: Session = Depends(get_db)):
+async def put_cliente(id: int, cliente_data: ClienteUpdate, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1, 3]))
+):
     """Atualiza um cliente existente"""
     try:
         cliente = db.query(ClienteDB).filter(ClienteDB.id == id).first()
@@ -117,7 +127,9 @@ async def put_cliente(id: int, cliente_data: ClienteUpdate, db: Session = Depend
         )
 
 @router.delete("/cliente/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Cliente"], summary="Remover Cliente")
-async def delete_cliente(id: int, db: Session = Depends(get_db)):
+async def delete_cliente(id: int, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1]))
+):
     """Remove um Cliente"""
     try:
         cliente = db.query(ClienteDB).filter(ClienteDB.id == id).first()
@@ -126,6 +138,13 @@ async def delete_cliente(id: int, db: Session = Depends(get_db)):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Cliente não encontrado"
+            )
+        
+        # Impede que admin se auto-exclua
+        if current_user.id == id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não é possível excluir seu próprio usuário"
             )
             
         db.delete(cliente)

@@ -8,15 +8,17 @@ from domain.schemas.ProdutoSchema import(
     ProdutoUpdate,
     ProdutoResponse
 )
+from domain.schemas.AuthSchema import FuncionarioAuth
 
 # Infra
 from infra.orm.ProdutoModel import ProdutoDB
 from infra.database import get_db
+from infra.dependencies import get_current_activate_user, require_group
 
 router = APIRouter()
 
 # Criar as rotas/endpoints: GET, POST, PUT, DELETE
-@router.get("/produto/", response_model=List[ProdutoResponse], tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar todos os produtos")
+@router.get("/produto/publico", response_model=List[ProdutoResponse], tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar todos os produtos")
 async def get_produto(db: Session = Depends(get_db)):
     """Retorna todos os produto"""
     try:
@@ -28,8 +30,25 @@ async def get_produto(db: Session = Depends(get_db)):
             detail=f"Erro ao buscar produtos: {str(e)}"
         )
 
+
+@router.get("/produto/", response_model=List[ProdutoResponse], tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar todos os produtos")
+async def get_produto(db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(get_current_activate_user)
+):
+    """Retorna todos os produto"""
+    try:
+        produtos = db.query(ProdutoDB).all()
+        return produtos
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao buscar produtos: {str(e)}"
+        )
+
 @router.get("/produto/{id}/", response_model=ProdutoResponse, tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar produto por ID")
-async def get_produto(id: int, db: Session = Depends(get_db)):
+async def get_produto(id: int, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(get_current_activate_user)
+):
     """Retorna um produto específico pelo ID"""
     try:
         produto = db.query(ProdutoDB).filter(ProdutoDB.id == id).first()
@@ -47,7 +66,9 @@ async def get_produto(id: int, db: Session = Depends(get_db)):
         )
 
 @router.post("/produto/", response_model=ProdutoResponse, status_code=status.HTTP_201_CREATED, tags=["Produto"], summary="Criar novo produto")
-async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db)):
+async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1]))
+):
     """Cria um novo produto"""
     try:
         #Verifica se já existe produto com este nome
@@ -81,7 +102,9 @@ async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db
         )
 
 @router.put("/produto/{id}", response_model=ProdutoResponse, tags=["Produto"], status_code=status.HTTP_200_OK, summary="Atualizar produto")
-async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depends(get_db)):
+async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1]))
+):
     """Atualiza um produto existente"""
     try:
         produto = db.query(ProdutoDB).filter(ProdutoDB.id == id).first()
@@ -119,7 +142,9 @@ async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depend
         )
 
 @router.delete("/produto/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Produto"], summary="Remover Produto")
-async def delete_produto(id: int, db: Session = Depends(get_db)):
+async def delete_produto(id: int, db: Session = Depends(get_db),
+    current_user: FuncionarioAuth = Depends(require_group([1]))
+):
     """Remove um produto"""
     try:
         produto = db.query(ProdutoDB).filter(ProdutoDB.id == id).first()
@@ -129,6 +154,14 @@ async def delete_produto(id: int, db: Session = Depends(get_db)):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Produto não encontrado"
             )
+        
+        # Impede que admin se auto-exclua
+        if current_user.id == id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não é possível excluir seu próprio usuário"
+            )
+
             
         db.delete(produto)
         db.commit()

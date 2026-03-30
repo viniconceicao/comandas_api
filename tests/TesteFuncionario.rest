@@ -1,29 +1,41 @@
+# token
+@access_token = $2b$12$jbAH32UDksH/RM8aZAUd6ORHDZKF7SKNGHWjAvct6GX0eiPuM0Hv2
+@refresh_token = $2b$12$jbAH32UDksH/RM8aZAUd6ORHDZKF7SKNGHWjAvct6GX0eiPuM0Hv2
+
+GET http://localhost:8000/auth/me HTTP/1.1
+Authorization: Bearer {{{{access_token}}}}
+
+
 ### Verbo GET – listar todos
 GET http://localhost:8000/funcionario/ HTTP/1.1
+Authorization: Bearer {{{{access_token}}}}
 ### Verbo GET – listar um
-GET http://localhost:8000/funcionario/10 HTTP/1.1
+GET http://localhost:8000/funcionario/ HTTP/1.1
+Authorization: Bearer {{{{access_token}}}}
 ### Verbo POST – adicionar
 POST http://127.0.0.1:8000/funcionario/ HTTP/1.1
 content-type: application/json
 
 {
     "nome" : "Vinicius de Liz da Conceição",
-    "matricula": "vi12345",
-    "cpf" : "3",
-    "telefone" : "te233849212",
-    "grupo" : 3,
-    "senha" : "qualqueruma123"
+    "matricula": "99",
+    "cpf" : "99",
+    "telefone" : "99",
+    "grupo" : 1,
+    "senha" : "1"
 }
 
 ### Verbo PUT – atualiza
 PUT http://127.0.0.1:8000/funcionario/2 HTTP/1.1
 content-type: application/json
+Authorization: Bearer {{{{access_token}}}}
 
 {
-    "senha" : "novasenha123"
+    "nome" : "Vinicius de Liz atualizado"
 }
 
 ### Verbo DELETE - excluir
 DELETE http://127.0.0.1:8000/funcionario/3 HTTP/1.1
+Authorization: Bearer {{{{access_token}}}}
 
 # Vinicius de Liz da Conceição
