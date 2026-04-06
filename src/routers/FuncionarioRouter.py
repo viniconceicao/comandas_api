@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from services.AuditoriaService import AuditoriaService
 from sqlalchemy.orm import Session
 from typing import List 
 
@@ -16,20 +17,25 @@ from infra.orm.FuncionarioModel import FuncionarioDB
 from infra.database import get_db
 from infra.security import get_password_hash
 from infra.dependencies import get_current_activate_user, require_group
+from infra.rate_limit import limiter, get_rate_limit
+
+# SlowAPI
+from slowapi.errors import RateLimitExceeded
 
 router = APIRouter()
 
 # Criar as rotas/endpoints: GET, POST, PUT, DELETE
 # Alterando o router funcionário
 
-@router.get("/funcionario/", response_model=List[FuncionarioResponse], tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Listar todos os funcionários")
-async def get_funcionario(db: Session = Depends(get_db),
-    current_user: FuncionarioAuth = Depends(require_group([1]))
-):
+@router.get("/funcionario/", response_model=List[FuncionarioResponse], tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Listar todos os funcionários - protegida por autenticação e grupo 1")
+@limiter.limit(get_rate_limit("moderate"))
+async def get_funcionario(request: Request, db: Session = Depends(get_db), current_user: FuncionarioAuth = Depends(require_group([1]))):
     """Retorna todos os funcionários - protegida por autenticação e grupo 1"""
     try:
         funcionarios = db.query(FuncionarioDB).all()
         return funcionarios
+    except RateLimitExceeded:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -57,7 +63,7 @@ async def get_funcionario(id: int, db: Session = Depends(get_db),
         )
     
 @router.post("/funcionario/", response_model=FuncionarioResponse, status_code=status.HTTP_201_CREATED, tags=["Funcionário"], summary="Criar novo funcionário")
-async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = Depends(get_db),
+async def post_funcionario(request: Request, funcionario_data: FuncionarioCreate, db: Session = Depends(get_db),
         current_user: FuncionarioAuth = Depends(require_group([1]))
 ):
     """Cria um novo funcionário - protegida por autenticação e grupo 1"""
@@ -88,8 +94,23 @@ async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = De
         db.commit()
         db.refresh(novo_funcionario)
 
+        # Depois de tudo executado e antes do return, registra a ação na auditoria
+        AuditoriaService.registrar_acao(
+            db=db,
+            funcionario_id=current_user.id,
+            acao="CREATE",
+            recurso="FUNCIONARIO",
+            recurso_id=novo_funcionario.id,
+            dados_antigos=None,
+            dados_novos=novo_funcionario, # Objeto SQLAlchemy com dados novos
+            request=request # Request completo para capturar IP e user agent
+        )
+
         return novo_funcionario
     
+    except RateLimitExceeded:
+        # Propagar a exceção original para o handler personalizado
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -98,8 +119,9 @@ async def post_funcionario(funcionario_data: FuncionarioCreate, db: Session = De
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao criar funcionário: {str(e)}"
         )
     
-@router.put("/funcionario/{id}", response_model=FuncionarioResponse, tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Atualiza Funcionário")
-async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Session = Depends(get_db),
+@router.put("/funcionario/{id}", response_model=FuncionarioResponse, tags=["Funcionário"], status_code=status.HTTP_200_OK, summary="Atualiza Funcionário - protegida por JWT e grupo 1")
+@limiter.limit(get_rate_limit("restrictive"))
+async def put_funcionario(request: Request, id: int, funcionario_data: FuncionarioUpdate, db: Session = Depends(get_db),
         current_user: FuncionarioAuth = Depends(require_group([1]))
 ):
     """Atualiza um funcionário existente - protegida por autenticação e grupo 1"""
@@ -119,10 +141,20 @@ async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Sess
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail="Já existe um funcionário com este CPF"
                 )
-            # Hash da senha se fornecida nova senha
+        # Hash da senha se fornecida nova senha
         if funcionario_data.senha:
             funcionario_data.senha = get_password_hash(funcionario_data.senha)
+
+        # Se informado grupo, valida se é um grupo válido
+        if funcionario_data.grupo:
+            if funcionario_data.grupo not in [1, 2, 3]:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Grupo inválido. Apenas grupos 1 (Admin), 2 (Atendimento Balcão) ou 3 (Atendimento Caixa) são permitidos")
                 
+            # Armazena uma cópia do objeto com os dados atuais, para salvar na auditoria
+            # Não pode manter referência com funcionário, pare que o auditoria possa comparar
+            # Por isso a cópia do __dict__
+            dados_antigos_obj = funcionario.__dict__.copy()
+
         # Atualiza apenas os campos fornecidos
         update_data = funcionario_data.model_dump(exclude_unset=True)
 
@@ -132,8 +164,22 @@ async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Sess
             db.commit()
             db.refresh(funcionario)
 
+            # Depois de tudo executado e antes do return. registra a ação na auditoria
+            AuditoriaService.registrar_acao(
+                db=db,
+                funcionario_id=current_user.id,
+                acao="UPDATE",
+                recurso="FUNCIONARIO",
+                recurso_id=funcionario.id,
+                dados_antigos=dados_antigos_obj,
+                dados_novos=funcionario,
+                request=request
+            )
+            
             return funcionario
         
+    except RateLimitExceeded:
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -143,9 +189,8 @@ async def put_funcionario(id: int, funcionario_data: FuncionarioUpdate, db: Sess
         )
     
 @router.delete("/funcionario/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Funcionário"], summary="Remover Funcionário")
-async def delete_funcionario(id: int, db: Session = Depends(get_db),
-        current_user: FuncionarioAuth = Depends(require_group([1]))
-):
+@limiter.limit(get_rate_limit("critical"))
+async def delete_funcionario(request: Request, id: int, db: Session = Depends(get_db), current_user: FuncionarioAuth = Depends(require_group([1]))):
     """Remove um funcionário - protegida por autenticação e grupo 1"""
     try:
         funcionario = db.query(FuncionarioDB).filter(FuncionarioDB.id == id).first()
@@ -166,8 +211,22 @@ async def delete_funcionario(id: int, db: Session = Depends(get_db),
         db.delete(funcionario)
         db.commit()
 
+        # Depois de tudo executado e antes do return, registra a ação na auditoria
+        AuditoriaService.registrar_acao(
+            db=db,
+            funcionario_id=current_user.id,
+            acao="DELETE",
+            recurso="FUNCIONARIO",
+            recurso_id=funcionario.id,
+            dados_antigos=funcionario,
+            dados_novos=None,
+            request=request
+        )
+
         return None
-        
+    
+    except RateLimitExceeded:
+        raise    
     except HTTPException:
         raise
     except Exception as e:
@@ -178,8 +237,3 @@ async def delete_funcionario(id: int, db: Session = Depends(get_db),
         )
 
 # Vinicius de Liz da Conceição
-
-# Importando mais funções do fastapi
-# Importando Session
-# Adicionando Domain Schemes
-# Adicionando Infra

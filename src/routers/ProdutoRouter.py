@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from services.AuditoriaService import AuditoriaService
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -14,16 +15,23 @@ from domain.schemas.AuthSchema import FuncionarioAuth
 from infra.orm.ProdutoModel import ProdutoDB
 from infra.database import get_db
 from infra.dependencies import get_current_activate_user, require_group
+from infra.rate_limit import limiter, get_rate_limit
+
+# SlowAPI
+from slowapi.errors import RateLimitExceeded
 
 router = APIRouter()
 
 # Criar as rotas/endpoints: GET, POST, PUT, DELETE
 @router.get("/produto/publico", response_model=List[ProdutoResponse], tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar todos os produtos")
-async def get_produto(db: Session = Depends(get_db)):
+@limiter.limit(get_rate_limit("moderate"))
+async def get_produto(request: Request, db: Session = Depends(get_db)):
     """Retorna todos os produto"""
     try:
         produtos = db.query(ProdutoDB).all()
         return produtos
+    except RateLimitExceeded:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -32,13 +40,16 @@ async def get_produto(db: Session = Depends(get_db)):
 
 
 @router.get("/produto/", response_model=List[ProdutoResponse], tags=["Produto"], status_code=status.HTTP_200_OK, summary="Listar todos os produtos")
-async def get_produto(db: Session = Depends(get_db),
+@limiter.limit(get_rate_limit("moderate"))
+async def get_produto(request: Request, db: Session = Depends(get_db),
     current_user: FuncionarioAuth = Depends(get_current_activate_user)
 ):
     """Retorna todos os produto"""
     try:
         produtos = db.query(ProdutoDB).all()
         return produtos
+    except RateLimitExceeded:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -66,7 +77,7 @@ async def get_produto(id: int, db: Session = Depends(get_db),
         )
 
 @router.post("/produto/", response_model=ProdutoResponse, status_code=status.HTTP_201_CREATED, tags=["Produto"], summary="Criar novo produto")
-async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db),
+async def post_produto(request: Request, produto_data: ProdutoCreate, db: Session = Depends(get_db),
     current_user: FuncionarioAuth = Depends(require_group([1]))
 ):
     """Cria um novo produto"""
@@ -92,7 +103,23 @@ async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db
         db.commit()
         db.refresh(novo_produto)
 
+        # Depois de tudo executado e antes do return, registra a ação na auditoria
+        AuditoriaService.registrar_acao(
+            db=db,
+            funcionario_id=current_user.id,
+            acao="CREATE",
+            recurso="PRODUTO",
+            recurso_id=novo_produto.id,
+            dados_antigos=None,
+            dados_novos=novo_produto, # Objeto SQLAlchemy com dados novos
+            request=request # Request completo para capturar IP e user agent
+        )
+
         return novo_produto
+    
+    except RateLimitExceeded:
+        # Propagar a exceção original para o handler personalizado
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -102,7 +129,8 @@ async def post_produto(produto_data: ProdutoCreate, db: Session = Depends(get_db
         )
 
 @router.put("/produto/{id}", response_model=ProdutoResponse, tags=["Produto"], status_code=status.HTTP_200_OK, summary="Atualizar produto")
-async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depends(get_db),
+@limiter.limit(get_rate_limit("restrictive"))
+async def put_produto(request: Request, id: int, produto_data: ProdutoUpdate, db: Session = Depends(get_db),
     current_user: FuncionarioAuth = Depends(require_group([1]))
 ):
     """Atualiza um produto existente"""
@@ -122,6 +150,12 @@ async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depend
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail="Já existe um produto com este nome"
                 )
+            
+            # Armazena uma cópia do objeto com os dados atuais, para salvar na auditoria
+            # Não pode manter referência com funcionário, pare que o auditoria possa comparar
+            # Por isso a cópia do __dict__
+            dados_antigos_obj = produto.__dict__.copy()
+
         # Atualiza apenas os campos fornecidos
         update_data = produto_data.model_dump(exclude_unset=True)
 
@@ -131,8 +165,22 @@ async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depend
             db.commit()
             db.refresh(produto)
 
+            # Depois de tudo executado e antes do return. registra a ação na auditoria
+            AuditoriaService.registrar_acao(
+                db=db,
+                funcionario_id=current_user.id,
+                acao="UPDATE",
+                recurso="PRODUTO",
+                recurso_id=produto.id,
+                dados_antigos=dados_antigos_obj,
+                dados_novos=produto,
+                request=request
+            )
+
             return produto
         
+    except RateLimitExceeded:
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -142,7 +190,8 @@ async def put_produto(id: int, produto_data: ProdutoUpdate, db: Session = Depend
         )
 
 @router.delete("/produto/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Produto"], summary="Remover Produto")
-async def delete_produto(id: int, db: Session = Depends(get_db),
+@limiter.limit(get_rate_limit("critical"))
+async def delete_produto(request: Request, id: int, db: Session = Depends(get_db),
     current_user: FuncionarioAuth = Depends(require_group([1]))
 ):
     """Remove um produto"""
@@ -166,8 +215,22 @@ async def delete_produto(id: int, db: Session = Depends(get_db),
         db.delete(produto)
         db.commit()
 
+        # Depois de tudo executado e antes do return, registra a ação na auditoria
+        AuditoriaService.registrar_acao(
+            db=db,
+            funcionario_id=current_user.id,
+            acao="DELETE",
+            recurso="PRODUTO",
+            recurso_id=produto.id,
+            dados_antigos=produto,
+            dados_novos=None,
+            request=request
+        )
+
         return None
         
+    except RateLimitExceeded:
+        raise  
     except HTTPException:
         raise
     except Exception as e:

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from services.AuditoriaService import AuditoriaService
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
@@ -8,13 +9,18 @@ from infra.orm.FuncionarioModel import FuncionarioDB
 from infra.database import get_db
 from infra.security import verify_password, create_access_token, create_refresh_token, verify_refresh_token
 from infra.dependencies import get_current_activate_user
+from infra.rate_limit import limiter, get_rate_limit
+
+# SlowAPI
+from slowapi.errors import RateLimitExceeded
 
 from settings import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 
 router = APIRouter()
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["Autenticação"], summary="Login de funcionário - pública - retorn acess e refresh token")
-async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit(get_rate_limit("critical"))
+async def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """
     Realiza login do funcionário e retorno access token e refresh token
 
@@ -53,6 +59,17 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             }
         )
 
+        # Registrar auditoria de login
+        AuditoriaService.registrar_acao(
+            db=db,
+            funcionario_id=funcionario.id,
+            acao="LOGIN",
+            recurso="AUTH",
+            request=request
+        )
+
+        # parei no slide 27
+
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -60,7 +77,8 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60, # em segundos
             refresh_expires_in=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 # em segundos
         )
-    
+    except RateLimitExceeded:
+        raise
     except HTTPException:
         raise
     except Exception as e:
