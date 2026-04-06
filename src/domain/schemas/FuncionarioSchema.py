@@ -14,7 +14,7 @@ class FuncionarioUpdate(BaseModel):
     matricula: Optional[str] = None
     cpf: Optional[str] = None
     telefone: Optional[str] = None
-    grupo: Optional[str] = None
+    grupo: Optional[int] = None
     senha: Optional[str] = None
 
 class FuncionarioResponse(BaseModel):

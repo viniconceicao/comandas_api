@@ -1,17 +1,17 @@
 # token
-@access_token = $2b$12$jbAH32UDksH/RM8aZAUd6ORHDZKF7SKNGHWjAvct6GX0eiPuM0Hv2
+@access_token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiaWQiOjgsImdydXBvIjoxLCJleHAiOjE3NzU0NDExNzAsInR5cGUiOiJhY2Nlc3MifQ.5uC2CiWATSjkc8TtMrXBYTe3YxKP9SpMDZEYDg6Icpo
 @refresh_token = $2b$12$jbAH32UDksH/RM8aZAUd6ORHDZKF7SKNGHWjAvct6GX0eiPuM0Hv2
 
 GET http://localhost:8000/auth/me HTTP/1.1
-Authorization: Bearer {{{{access_token}}}}
+Authorization: Bearer {{access_token}}
 
 
 ### Verbo GET – listar todos
 GET http://localhost:8000/funcionario/ HTTP/1.1
-Authorization: Bearer {{{{access_token}}}}
+Authorization: Bearer {{access_token}}
 ### Verbo GET – listar um
 GET http://localhost:8000/funcionario/ HTTP/1.1
-Authorization: Bearer {{{{access_token}}}}
+Authorization: Bearer {{access_token}}
 ### Verbo POST – adicionar
 POST http://127.0.0.1:8000/funcionario/ HTTP/1.1
 content-type: application/json
@@ -28,7 +28,7 @@ content-type: application/json
 ### Verbo PUT – atualiza
 PUT http://127.0.0.1:8000/funcionario/2 HTTP/1.1
 content-type: application/json
-Authorization: Bearer {{{{access_token}}}}
+Authorization: Bearer {{access_token}}
 
 {
     "nome" : "Vinicius de Liz atualizado"
@@ -36,6 +36,6 @@ Authorization: Bearer {{{{access_token}}}}
 
 ### Verbo DELETE - excluir
 DELETE http://127.0.0.1:8000/funcionario/3 HTTP/1.1
-Authorization: Bearer {{{{access_token}}}}
+Authorization: Bearer {{access_token}}
 
 # Vinicius de Liz da Conceição
